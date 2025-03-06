@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import coil.compose.rememberAsyncImagePainter
 
 @Composable
 fun ImageLibraryScreen(
@@ -56,7 +57,7 @@ fun ImageLibraryScreen(
                             .clickable { onImageSelected(uri) }
                     ) {
                         androidx.compose.foundation.Image(
-                            painter = coil.compose.rememberImagePainter(uri),
+                            painter = rememberAsyncImagePainter(uri),
                             contentDescription = "라이브러리 이미지",
                             modifier = Modifier.fillMaxSize()
                         )

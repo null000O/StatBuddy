@@ -15,7 +15,7 @@ class ImageViewModel() : ViewModel() {
             savedImages.add(uri)
         }
 
-        // 처음 추가된 이미지를 자동으로 활성 이미지로 설정
+        // select image as active notification image if not active image exists
         if (activeNotificationImage.value == null) {
             setActiveNotificationImage(uri)
         }

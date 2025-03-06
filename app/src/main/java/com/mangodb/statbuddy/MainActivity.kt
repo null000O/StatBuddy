@@ -9,12 +9,14 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil.compose.rememberAsyncImagePainter
 import com.mangodb.statbuddy.ui.theme.NotificationImageAppTheme
 
 class MainActivity : ComponentActivity() {
@@ -84,7 +86,7 @@ fun MainScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "알림 이미지 앱",
+            text = "StatBuddy",
             style = MaterialTheme.typography.h4,
             modifier = Modifier.padding(bottom = 32.dp)
         )
@@ -109,7 +111,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 알림 활성화 스위치
+        // toggle notification
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -133,15 +135,15 @@ fun MainScreen(
             )
         }
 
-        // 현재 선택된 이미지 표시
+        // show selected image
         viewModel.activeNotificationImage.value?.let { uri ->
             Text(
                 text = "현재 선택된 이미지:",
                 modifier = Modifier.padding(top = 16.dp)
             )
-            // 이미지 미리보기 표시 (Coil 라이브러리 사용)
+            // image preview
             androidx.compose.foundation.Image(
-                painter = coil.compose.rememberImagePainter(uri),
+                painter = rememberAsyncImagePainter(uri),
                 contentDescription = "선택된 이미지",
                 modifier = Modifier
                     .padding(8.dp)
@@ -156,14 +158,15 @@ fun MainScreen(
 @Composable
 fun MainScreenPreview() {
     NotificationImageAppTheme {
-        // MainActivity에서 사용될 실제 인스턴스를 전달할 수 없으므로
-        // 미리보기용 더미 함수와 ViewModel을 사용합니다
+        // dummy for preview
         val viewModel = ImageViewModel()
+        val context = LocalContext.current
+        val activity = context as ComponentActivity
         MainScreen(
-            navigateToGallery = { /* 미리보기에서는 작동 안함 */ },
-            navigateToLibrary = { /* 미리보기에서는 작동 안함 */ },
+            navigateToGallery = {},
+            navigateToLibrary = {},
             viewModel = viewModel,
-            activity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
+            activity = activity
         )
     }
 }
@@ -174,21 +177,21 @@ fun MainScreenPreview() {
 fun ImagePickerScreenPreview() {
     NotificationImageAppTheme {
         ImagePickerScreen(
-            onImageSelected = { /* 미리보기에서는 작동 안함 */ },
-            onCancel = { /* 미리보기에서는 작동 안함 */ }
+            onImageSelected = {},
+            onCancel = {}
         )
     }
 }
 
-// ImageLibraryScreen Preview (빈 라이브러리)
+// ImageLibraryScreen Preview
 @Preview(showBackground = true)
 @Composable
 fun EmptyImageLibraryScreenPreview() {
     NotificationImageAppTheme {
         ImageLibraryScreen(
             images = emptyList(),
-            onImageSelected = { /* 미리보기에서는 작동 안함 */ },
-            onCancel = { /* 미리보기에서는 작동 안함 */ }
+            onImageSelected = {},
+            onCancel = {}
         )
     }
 }

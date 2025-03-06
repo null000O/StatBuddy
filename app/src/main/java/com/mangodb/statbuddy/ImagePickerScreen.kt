@@ -41,7 +41,7 @@ fun ImagePickerScreen(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
         ) {
-            Text("갤러리에서 이미지 선택")
+            Text("이미지 선택")
         }
 
         Button(
