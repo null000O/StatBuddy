@@ -1,4 +1,4 @@
-package com.mangodb.myapplication2
+package com.mangodb.statbuddy
 
 
 import android.net.Uri

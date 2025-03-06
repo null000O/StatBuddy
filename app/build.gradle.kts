@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mangodb.myapplication2"
+    namespace = "com.mangodb.statbuddy"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.mangodb.myapplication2"
+        applicationId = "com.mangodb.statbuddy"
         minSdk = 27
         targetSdk = 35
         versionCode = 1

@@ -1,7 +1,5 @@
-package com.mangodb.myapplication2
+package com.mangodb.statbuddy
 
-import android.Manifest
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,7 +15,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.mangodb.myapplication2.ui.theme.NotificationImageAppTheme
+import com.mangodb.statbuddy.ui.theme.NotificationImageAppTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

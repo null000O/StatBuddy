@@ -1,4 +1,4 @@
-package com.mangodb.myapplication2.ui.theme
+package com.mangodb.statbuddy.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Shapes

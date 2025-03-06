@@ -1,7 +1,5 @@
-package com.mangodb.myapplication2
+package com.mangodb.statbuddy
 
-import android.os.Parcel
-import android.os.Parcelable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
