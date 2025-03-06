@@ -18,7 +18,7 @@
         <service android:name=".NotificationService" android:exported="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.example.notificationimageapp.fileprovider"
+            android:authorities="com.mangodb.statbuddy.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

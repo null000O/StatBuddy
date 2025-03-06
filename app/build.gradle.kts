@@ -64,10 +64,12 @@ dependencies {
     implementation(libs.ui.tooling.preview)
     implementation(libs.androidx.lifecycle.runtime.ktx.v251)
     implementation(libs.coil.compose)
+    implementation(libs.androidsvg.aar)
 
     implementation(libs.androidx.ui.v164)
     implementation(libs.androidx.material.v164)
     implementation(libs.androidx.ui.tooling.preview.v164)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
+
 }

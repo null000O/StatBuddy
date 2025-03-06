@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(activity: ComponentActivity) {
     val navController = rememberNavController()
-    val viewModel: ImageViewModel = viewModel()
+    val viewModel: ImageViewModel = viewModel(factory = ImageViewModelFactory(activity.application))
 
     NavHost(navController, startDestination = "main") {
         composable("main") {
@@ -71,6 +71,7 @@ fun AppNavigation(activity: ComponentActivity) {
     }
 }
 
+
 @Composable
 fun MainScreen(
     navigateToGallery: () -> Unit,
@@ -86,7 +87,7 @@ fun MainScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "StatBuddy",
+            text = "알림 이미지 앱",
             style = MaterialTheme.typography.h4,
             modifier = Modifier.padding(bottom = 32.dp)
         )
@@ -111,7 +112,7 @@ fun MainScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // toggle notification
+        // 알림 활성화 스위치
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -125,7 +126,7 @@ fun MainScreen(
             Switch(
                 checked = viewModel.notificationActive.value,
                 onCheckedChange = { isActive ->
-                    viewModel.notificationActive.value = isActive
+                    viewModel.setNotificationActive(isActive)
                     if (isActive) {
                         NotificationService.startNotification(activity, viewModel.activeNotificationImage.value)
                     } else {
@@ -135,15 +136,15 @@ fun MainScreen(
             )
         }
 
-        // show selected image
+        // 현재 선택된 이미지 표시
         viewModel.activeNotificationImage.value?.let { uri ->
             Text(
                 text = "현재 선택된 이미지:",
                 modifier = Modifier.padding(top = 16.dp)
             )
-            // image preview
+            // 이미지 미리보기 표시 (Coil 라이브러리 사용)
             androidx.compose.foundation.Image(
-                painter = rememberAsyncImagePainter(uri),
+                painter = coil.compose.rememberImagePainter(uri),
                 contentDescription = "선택된 이미지",
                 modifier = Modifier
                     .padding(8.dp)
@@ -158,15 +159,14 @@ fun MainScreen(
 @Composable
 fun MainScreenPreview() {
     NotificationImageAppTheme {
-        // dummy for preview
-        val viewModel = ImageViewModel()
-        val context = LocalContext.current
-        val activity = context as ComponentActivity
+        // MainActivity에서 사용될 실제 인스턴스를 전달할 수 없으므로
+        // 미리보기용 더미 함수와 ViewModel을 사용합니다
+        val viewModel = ImageViewModel(androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
         MainScreen(
-            navigateToGallery = {},
-            navigateToLibrary = {},
+            navigateToGallery = { /* 미리보기에서는 작동 안함 */ },
+            navigateToLibrary = { /* 미리보기에서는 작동 안함 */ },
             viewModel = viewModel,
-            activity = activity
+            activity = androidx.compose.ui.platform.LocalContext.current as androidx.activity.ComponentActivity
         )
     }
 }

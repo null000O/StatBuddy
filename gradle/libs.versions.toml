@@ -1,5 +1,6 @@
 [versions]
 agp = "8.8.2"
+androidsvgAar = "1.4"
 appcompat = "1.7.0"
 coilCompose = "2.5.0"
 kotlin = "2.0.0"
@@ -22,6 +23,7 @@ uiVersion = "1.6.4"
 navigationCompose = "2.8.8"
 
 [libraries]
+androidsvg-aar = { module = "com.caverock:androidsvg-aar", version.ref = "androidsvgAar" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx-v251 = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtxVersion" }
