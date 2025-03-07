@@ -52,7 +52,7 @@ class NotificationService : Service() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             val name = "이미지 알림"
             val descriptionText = "선택한 이미지를 표시하는 알림 채널"
-            val importance = android.app.NotificationManager.IMPORTANCE_LOW
+            val importance = android.app.NotificationManager.IMPORTANCE_HIGH
             val channel = android.app.NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
             }
@@ -81,7 +81,7 @@ class NotificationService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("이미지 표시 중")
             .setContentText("선택한 이미지가 알림으로 표시되고 있습니다")
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
 
@@ -105,19 +105,19 @@ class NotificationService : Service() {
                         ))
                     } else {
                         // 하위 버전에서는 기본 아이콘 사용
-                        builder.setSmallIcon(R.drawable.ic_notification)
+                        builder.setSmallIcon(R.drawable.ic_bis)
                     }
 
                     currentIconResourceId = dynamicIconId
                 } else {
-                    builder.setSmallIcon(R.drawable.ic_notification)
+                    builder.setSmallIcon(R.drawable.ic_bis)
                 }
             } catch (e: Exception) {
                 Log.e("NotificationService", "동적 아이콘 설정 실패", e)
-                builder.setSmallIcon(R.drawable.ic_notification)
+                builder.setSmallIcon(R.drawable.ic_bis)
             }
         } else {
-            builder.setSmallIcon(R.drawable.ic_notification)
+            builder.setSmallIcon(R.drawable.ic_bis)
         }
 
         // 큰 아이콘 및 확장 스타일 설정

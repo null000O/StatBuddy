@@ -4,8 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
-//noinspection UsingMaterialAndMaterial3Libraries
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -15,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil.compose.rememberAsyncImagePainter
 import com.mangodb.statbuddy.ui.theme.StatBuddyTheme
 
 class MainActivity : ComponentActivity() {
@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
             StatBuddyTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colors.background
+                    color = MaterialTheme.colorScheme.background
                 ) {
                     AppNavigation(this)
                 }
@@ -63,7 +63,12 @@ fun AppNavigation(activity: ComponentActivity) {
                     viewModel.setActiveNotificationImage(uri)
                     navController.popBackStack()
                 },
-                onCancel = { navController.popBackStack() }
+                onCancel = { navController.popBackStack() },
+                onImageCropped = { croppedUri ->
+                    // 기존 이미지 대신 새 이미지로 업데이트
+                    val oldUri = viewModel.savedImages.last()
+                    viewModel.updateImage(oldUri, croppedUri)
+                }
             )
         }
     }
@@ -85,8 +90,8 @@ fun MainScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "알림 이미지 앱",
-            style = MaterialTheme.typography.h4,
+            text = "StatBuddy",
+            style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(bottom = 32.dp)
         )
 
@@ -96,7 +101,7 @@ fun MainScreen(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
         ) {
-            Text("새 이미지 선택하기")
+            Text("Import new image")
         }
 
         Button(
@@ -105,7 +110,7 @@ fun MainScreen(
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
         ) {
-            Text("저장된 이미지 라이브러리")
+            Text("Image Library")
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -118,7 +123,7 @@ fun MainScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "알림 활성화",
+                text = "서비스 활성화",
                 modifier = Modifier.weight(1f)
             )
             Switch(
@@ -142,7 +147,7 @@ fun MainScreen(
             )
             // 이미지 미리보기 표시 (Coil 라이브러리 사용)
             androidx.compose.foundation.Image(
-                painter = coil.compose.rememberImagePainter(uri),
+                painter = rememberAsyncImagePainter(uri),
                 contentDescription = "선택된 이미지",
                 modifier = Modifier
                     .padding(8.dp)
@@ -189,7 +194,8 @@ fun EmptyImageLibraryScreenPreview() {
         ImageLibraryScreen(
             images = emptyList(),
             onImageSelected = {},
-            onCancel = {}
+            onCancel = {},
+            onImageCropped = {}
         )
     }
 }
