@@ -71,5 +71,4 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview.v164)
     debugImplementation(libs.ui.tooling)
     debugImplementation(libs.ui.test.manifest)
-
 }

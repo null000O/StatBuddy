@@ -24,7 +24,7 @@ private val LightColorPalette = lightColors(
 )
 
 @Composable
-fun NotificationImageAppTheme(
+fun StatBuddyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {

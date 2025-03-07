@@ -11,8 +11,8 @@ class NotificationService : Service() {
     companion object {
         private const val CHANNEL_ID = "ImageNotificationChannel"
         private const val NOTIFICATION_ID = 1001
-        private const val ACTION_START = "com.example.notificationimageapp.START"
-        private const val ACTION_STOP = "com.example.notificationimageapp.STOP"
+        private const val ACTION_START = "com.mangodb.statbuddy.START"
+        private const val ACTION_STOP = "com.mangodb.statbuddy.STOP"
         private const val EXTRA_IMAGE_URI = "image_uri"
 
         // 현재 사용 중인 동적 아이콘 리소스 ID
@@ -93,7 +93,7 @@ class NotificationService : Service() {
                 if (iconFile != null && iconFile.exists()) {
                     val iconUri = androidx.core.content.FileProvider.getUriForFile(
                         this,
-                        "com.example.notificationimageapp.fileprovider",
+                        "com.mangodb.statbuddy.fileprovider",
                         iconFile
                     )
 

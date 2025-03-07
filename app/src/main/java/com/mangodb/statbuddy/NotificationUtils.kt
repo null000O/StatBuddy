@@ -15,7 +15,7 @@ object NotificationUtils {
     private const val ICON_SIZE = 96 // 알림 아이콘 크기 (픽셀)
     private const val ICON_PADDING = 8 // 아이콘 패딩 (픽셀)
     private const val TEMP_ICON_NAME = "temp_notification_icon.png"
-    private const val PROVIDER_AUTHORITY = "com.example.notificationimageapp.fileprovider" // Manifest에 맞게 수정 필요
+    private const val PROVIDER_AUTHORITY = "com.mangodb.statbuddy.fileprovider" // Manifest에 맞게 수정 필요
 
     /**
      * 사용자가 선택한 이미지에서 알림용 아이콘 생성
@@ -137,7 +137,9 @@ object NotificationUtils {
         val canvas = Canvas(result)
 
         // 원본 이미지 크기 조절 및 중앙 배치
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)  // FILTER_BITMAP_FLAG 추가
+        paint.isFilterBitmap = true  // 비트맵 필터링 활성화
+
         val scale: Float
         val left: Float
         val top: Float
@@ -156,7 +158,7 @@ object NotificationUtils {
         matrix.setScale(scale, scale)
         matrix.postTranslate(left, top)
 
-        // 비트맵 그리기
+        // 고품질 비트맵 그리기
         canvas.drawBitmap(original, matrix, paint)
 
         // 단색화 처리 (알림 아이콘용)
@@ -166,7 +168,8 @@ object NotificationUtils {
         val colorMatrix = ColorMatrix()
         colorMatrix.setSaturation(0f) // 채도 제거 (흑백)
 
-        val monochromePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val monochromePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)  // FILTER_BITMAP_FLAG 추가
+        monochromePaint.isFilterBitmap = true  // 비트맵 필터링 활성화
         monochromePaint.colorFilter = ColorMatrixColorFilter(colorMatrix)
 
         monochromeCanvas.drawBitmap(result, 0f, 0f, monochromePaint)

@@ -9,21 +9,19 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import coil.compose.rememberAsyncImagePainter
-import com.mangodb.statbuddy.ui.theme.NotificationImageAppTheme
+import com.mangodb.statbuddy.ui.theme.StatBuddyTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            NotificationImageAppTheme {
+            StatBuddyTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colors.background
@@ -158,7 +156,7 @@ fun MainScreen(
 @Preview(showBackground = true)
 @Composable
 fun MainScreenPreview() {
-    NotificationImageAppTheme {
+    StatBuddyTheme {
         // MainActivity에서 사용될 실제 인스턴스를 전달할 수 없으므로
         // 미리보기용 더미 함수와 ViewModel을 사용합니다
         val viewModel = ImageViewModel(androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
@@ -175,7 +173,7 @@ fun MainScreenPreview() {
 @Preview(showBackground = true)
 @Composable
 fun ImagePickerScreenPreview() {
-    NotificationImageAppTheme {
+    StatBuddyTheme {
         ImagePickerScreen(
             onImageSelected = {},
             onCancel = {}
@@ -187,7 +185,7 @@ fun ImagePickerScreenPreview() {
 @Preview(showBackground = true)
 @Composable
 fun EmptyImageLibraryScreenPreview() {
-    NotificationImageAppTheme {
+    StatBuddyTheme {
         ImageLibraryScreen(
             images = emptyList(),
             onImageSelected = {},
