@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx.v251)
     implementation(libs.coil.compose)
     implementation(libs.androidsvg.aar)
+    implementation(libs.androidx.media)
 
     implementation(libs.androidx.ui.v164)
     implementation(libs.androidx.material.v164)

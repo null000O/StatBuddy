@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.core.net.toUri
+import androidx.core.graphics.scale
 
 class NotificationService : Service() {
 
@@ -76,6 +77,9 @@ class PriorityNotificationService : Service() {
 
         // 알림 갱신 주기 단축 (5초)
         private const val NOTIFICATION_UPDATE_INTERVAL = 5000L
+
+        // 현재 사용 중인 동적 아이콘 리소스 ID
+        private var currentIconResourceId: Int? = null
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -199,6 +203,7 @@ class PriorityNotificationService : Service() {
         val builder = NotificationCompat.Builder(this, PRIORITY_CHANNEL_ID)
             .setContentTitle("이미지 표시 중")
             .setContentText("이 알림이 항상 최상단에 표시됩니다")
+            // 기본 아이콘은 일단 설정 (동적 아이콘 생성 실패 시 사용)
             .setSmallIcon(R.drawable.ic_bis)
             // 최대 우선순위 설정
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -227,12 +232,55 @@ class PriorityNotificationService : Service() {
             builder.setFullScreenIntent(pendingIntent, true)
         }
 
-        // 캐시된 이미지가 있으면 큰 아이콘 및 확장 스타일 설정
+        // 동적 아이콘 생성 시도
+        val dynamicIconId = imageUri?.let {
+            NotificationUtils.createSmallIconFromImage(this, it)
+        }
+
+        // 동적 아이콘이 생성되었으면 사용
+        if (dynamicIconId != null) {
+            try {
+                // 동적 아이콘 설정 시도
+                val iconFile = NotificationUtils.DynamicResourceManager.getIconFile(dynamicIconId)
+                if (iconFile != null && iconFile.exists()) {
+                    val iconUri = androidx.core.content.FileProvider.getUriForFile(
+                        this,
+                        "com.mangodb.statbuddy.fileprovider",
+                        iconFile
+                    )
+
+                    // Android 8.0 이상에서는 Icon 객체 사용
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val icon = android.graphics.drawable.Icon.createWithContentUri(iconUri)
+                        builder.setSmallIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(
+                            android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
+                        ))
+                    } else {
+                        // 하위 버전에서는 기본 아이콘 사용
+                        builder.setSmallIcon(R.drawable.ic_bis)
+                    }
+
+                    currentIconResourceId = dynamicIconId
+                } else {
+                    builder.setSmallIcon(R.drawable.ic_bis)
+                }
+            } catch (e: Exception) {
+                Log.e("PriorityNotificationService", "동적 아이콘 설정 실패", e)
+                builder.setSmallIcon(R.drawable.ic_bis)
+            }
+        }
+
+        // 캐시된 이미지가 있으면 우측에 작은 아이콘으로만 표시
         cachedBitmap?.let { bitmap ->
-            builder.setLargeIcon(bitmap)
-                .setStyle(NotificationCompat.BigPictureStyle()
-                    .bigPicture(bitmap)
-                    .bigLargeIcon(null as Bitmap?))
+            // 원본 비트맵 크기를 줄이기
+            val smallBitmap = bitmap.scale(bitmap.width / 4, bitmap.height / 4)
+
+            // 라지 아이콘만 설정하고 BigPictureStyle은 사용하지 않음
+            builder.setLargeIcon(smallBitmap)
+            // 확장 스타일을 사용하지 않거나,
+            // 또는 더 간단한 스타일 사용: BigTextStyle을 사용하여 텍스트만 표시
+            builder.setStyle(NotificationCompat.BigTextStyle()
+                .bigText("이 알림이 항상 최상단에 표시됩니다."))
         }
 
         // 서비스를 포그라운드로 시작
@@ -276,6 +324,7 @@ class PriorityNotificationService : Service() {
         val builder = NotificationCompat.Builder(this, PRIORITY_CHANNEL_ID)
             .setContentTitle("이미지 표시 중")
             .setContentText("이 알림이 항상 최상단에 표시됩니다")
+            // 기본 스몰 아이콘 설정
             .setSmallIcon(R.drawable.ic_bis)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -295,12 +344,41 @@ class PriorityNotificationService : Service() {
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .setNumber(1)
 
-        // 캐시된 이미지 추가
+        // 마지막 동적 아이콘 ID가 있는 경우 재사용
+        currentIconResourceId?.let { dynamicIconId ->
+            try {
+                val iconFile = NotificationUtils.DynamicResourceManager.getIconFile(dynamicIconId)
+                if (iconFile != null && iconFile.exists()) {
+                    val iconUri = androidx.core.content.FileProvider.getUriForFile(
+                        this,
+                        "com.mangodb.statbuddy.fileprovider",
+                        iconFile
+                    )
+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val icon = android.graphics.drawable.Icon.createWithContentUri(iconUri)
+                        builder.setSmallIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(
+                            android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
+                        ))
+                    } else {
+                        builder.setSmallIcon(R.drawable.ic_bis)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PriorityService", "동적 아이콘 재사용 실패", e)
+            }
+        }
+
+        // 캐시된 이미지 추가 - 작은 크기로 우측에만 표시
         cachedBitmap?.let { bitmap ->
-            builder.setLargeIcon(bitmap)
-                .setStyle(NotificationCompat.BigPictureStyle()
-                    .bigPicture(bitmap)
-                    .bigLargeIcon(null as Bitmap?))
+            // 원본 비트맵 크기를 줄이기
+            val smallBitmap = bitmap.scale(bitmap.width / 4, bitmap.height / 4)
+
+            // 라지 아이콘만 설정하고 BigPictureStyle은 사용하지 않음
+            builder.setLargeIcon(smallBitmap)
+            // 확장 스타일 사용하지 않거나, 텍스트 스타일만 사용
+            builder.setStyle(NotificationCompat.BigTextStyle()
+                .bigText("이 알림이 항상 최상단에 표시됩니다."))
         }
 
         return builder.build()
@@ -319,6 +397,16 @@ class PriorityNotificationService : Service() {
         val notificationManager = NotificationManagerCompat.from(this)
         notificationManager.cancel(PRIORITY_NOTIFICATION_ID)
 
+        // 동적 아이콘 리소스 정리
+        currentIconResourceId?.let { iconId ->
+            try {
+                NotificationUtils.DynamicResourceManager.getIconFile(iconId)
+            } catch (e: Exception) {
+                Log.e("PriorityService", "동적 아이콘 리소스 정리 실패", e)
+            }
+        }
+        currentIconResourceId = null
+
         cachedBitmap?.recycle()
         cachedBitmap = null
         imageUri = null
@@ -329,6 +417,17 @@ class PriorityNotificationService : Service() {
     override fun onDestroy() {
         updateRunnable?.let { handler.removeCallbacks(it) }
         updateRunnable = null
+
+        // 동적 아이콘 리소스 정리
+        currentIconResourceId?.let { iconId ->
+            try {
+                NotificationUtils.DynamicResourceManager.getIconFile(iconId)
+            } catch (e: Exception) {
+                Log.e("PriorityService", "동적 아이콘 리소스 정리 실패", e)
+            }
+        }
+        currentIconResourceId = null
+
         cachedBitmap?.recycle()
         cachedBitmap = null
         super.onDestroy()
