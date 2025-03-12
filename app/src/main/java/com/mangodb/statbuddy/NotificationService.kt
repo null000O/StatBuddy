@@ -5,115 +5,258 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.*
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.core.net.toUri
 import androidx.core.graphics.scale
+import androidx.media.app.NotificationCompat.MediaStyle
+import kotlinx.coroutines.*
+import java.lang.ref.WeakReference
 
 class NotificationService : Service() {
-
     companion object {
-        private const val CHANNEL_ID = "ImageNotificationChannel"
-        private const val NOTIFICATION_ID = 1001
-        private const val ACTION_START = "com.mangodb.statbuddy.START"
-        private const val ACTION_STOP = "com.mangodb.statbuddy.STOP"
+        private const val MEDIA_CHANNEL_ID = "SuperiorMediaChannel"
+        private const val MEDIA_NOTIFICATION_ID = 9999
+        private const val ACTION_START = "com.mangodb.statbuddy.SUPERIOR_START"
+        private const val ACTION_STOP = "com.mangodb.statbuddy.SUPERIOR_STOP"
+        private const val ACTION_PLAY = "com.mangodb.statbuddy.SUPERIOR_PLAY"
+        private const val ACTION_PAUSE = "com.mangodb.statbuddy.SUPERIOR_PAUSE"
         private const val EXTRA_IMAGE_URI = "image_uri"
-        // 헤드업 알림 표시 지속 시간(ms)
-        private const val HEADS_UP_DURATION = 5000L
+        // Reduced update frequency to save battery
+        private const val UPDATE_INTERVAL = 15000L // 15 seconds
 
         fun startNotification(context: Context, imageUri: Uri?) {
-            val priorityIntent = Intent(context, PriorityNotificationService::class.java).apply {
+            val intent = Intent(context, NotificationService::class.java).apply {
                 action = ACTION_START
                 imageUri?.let { putExtra(EXTRA_IMAGE_URI, it.toString()) }
-                // 헤드업 표시 여부 전달
-                putExtra("show_heads_up", true)
             }
-            context.startService(priorityIntent)
-
-            // 5초 후 헤드업 알림 제거하는 인텐트 전송
-            Handler(Looper.getMainLooper()).postDelayed({
-                val updateIntent = Intent(context, PriorityNotificationService::class.java).apply {
-                    action = ACTION_START
-                    imageUri?.let { putExtra(EXTRA_IMAGE_URI, it.toString()) }
-                    putExtra("show_heads_up", false)
-                }
-                context.startService(updateIntent)
-            }, HEADS_UP_DURATION)
+            context.startService(intent)
         }
 
         fun stopNotification(context: Context) {
-            val priorityIntent = Intent(context, PriorityNotificationService::class.java).apply {
+            val intent = Intent(context, NotificationService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(priorityIntent)
+            context.startService(intent)
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        stopSelf()
-        return START_NOT_STICKY
-    }
-
-    override fun onBind(intent: Intent?): android.os.IBinder? = null
-}
-
-class PriorityNotificationService : Service() {
-    companion object {
-        private const val PRIORITY_CHANNEL_ID = "PriorityImageNotificationChannel"
-        private const val PRIORITY_NOTIFICATION_ID = 1
-        private const val ACTION_START = "com.mangodb.statbuddy.START"
-        private const val ACTION_STOP = "com.mangodb.statbuddy.STOP"
-        private const val EXTRA_IMAGE_URI = "image_uri"
-
-        // 알림 갱신 주기 단축 (5초)
-        private const val NOTIFICATION_UPDATE_INTERVAL = 5000L
-
-        // 현재 사용 중인 동적 아이콘 리소스 ID
-        private var currentIconResourceId: Int? = null
-    }
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var updateRunnable: Runnable? = null
-    private var showHeadsUp = false
-    private var imageUri: Uri? = null
+    private lateinit var mediaSession: MediaSessionCompat
+    private lateinit var audioManager: AudioManager
+    private var audioFocusRequest: AudioFocusRequest? = null
     private var cachedBitmap: Bitmap? = null
-    private val coroutineScope = CoroutineScope(Dispatchers.IO)
+    private var imageUri: Uri? = null
+    private var isPlaying = true
+    private var isForegroundAppPlaying = false
+
+    // Use Job for structured concurrency
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+
+    // More efficient mechanism for updates
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var updateRunnable: Runnable? = null
+
+    // Audio focus management
+    private var audioFocusChangeListener: AudioManager.OnAudioFocusChangeListener? = null
+
+    // For long-term persistent notifications, we don't need audio playback at all
+    // Just a dummy flag to track state
+    private var dummyAudioState = false
 
     override fun onCreate() {
         super.onCreate()
-        createPriorityChannel()
+        createMediaChannel()
+        initMediaSession()
+
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // Initialize audio focus listener
+        initAudioFocusListener()
+
+        // Request audio focus once at startup, but don't fight for it
+        requestAudioFocusMinimal()
     }
 
+    private fun initAudioFocusListener() {
+        // Create audio focus listener with weak reference to avoid memory leaks
+        val serviceRef = WeakReference(this)
+        audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    // Another app requested focus, we'll yield but keep our notification
+                    isForegroundAppPlaying = true
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    // Only restart if we were playing before
+                    isForegroundAppPlaying = false
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    // Lower volume but keep focus
+                    isForegroundAppPlaying = true
+                }
+            }
+            updatePlaybackState()
+        }
+    }
+
+    private fun initMediaSession() {
+        mediaSession = MediaSessionCompat(this, "SuperiorMediaSession")
+
+        mediaSession.setCallback(object : MediaSessionCompat.Callback() {
+            @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+            override fun onPlay() {
+                isPlaying = true
+                dummyAudioState = true
+                updatePlaybackState()
+                updateMediaNotification()
+            }
+
+            @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+            override fun onPause() {
+                isPlaying = false
+                dummyAudioState = false
+                updatePlaybackState()
+                updateMediaNotification()
+            }
+        })
+
+        val metadata = MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "StatBuddy 실행 중")
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "알림 유지 중")
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "StatBuddy")
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 3600000)
+            .build()
+        mediaSession.setMetadata(metadata)
+
+        updatePlaybackState()
+        mediaSession.isActive = true
+    }
+
+    private fun updatePlaybackState() {
+        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        // Using a very small playback speed to maintain "playing" appearance without actual audio
+        val playbackSpeed = if (isPlaying && !isForegroundAppPlaying) 0.01f else 0.0f
+
+        val playbackState = PlaybackStateCompat.Builder()
+            .setState(state, 0, playbackSpeed)
+            .setActions(
+                PlaybackStateCompat.ACTION_PLAY or
+                        PlaybackStateCompat.ACTION_PAUSE or
+                        PlaybackStateCompat.ACTION_PLAY_PAUSE
+            )
+            .build()
+
+        mediaSession.setPlaybackState(playbackState)
+    }
+
+    // Minimal audio focus request that doesn't fight with other apps
+    private fun requestAudioFocusMinimal() {
+        if (audioFocusChangeListener == null) {
+            initAudioFocusListener()
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Use notification audio attributes
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+
+            // Release existing request
+            releaseAudioFocusRequest()
+
+            // Request minimal focus that doesn't interfere with other apps
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                .setAudioAttributes(audioAttributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setWillPauseWhenDucked(true)
+                .setOnAudioFocusChangeListener(audioFocusChangeListener!!)
+                .build()
+
+            val result = audioManager.requestAudioFocus(audioFocusRequest!!)
+            if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                // Just log and continue with notification
+                Log.i("SuperiorMediaService", "Audio focus request failed, showing notification only")
+            }
+        } else {
+            // For older versions
+            val result = audioManager.requestAudioFocus(
+                audioFocusChangeListener,
+                AudioManager.STREAM_NOTIFICATION,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+            )
+
+            if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                Log.i("SuperiorMediaService", "Audio focus request failed, showing notification only")
+            }
+        }
+    }
+
+    private fun releaseAudioFocusRequest() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let {
+                try {
+                    audioManager.abandonAudioFocusRequest(it)
+                } catch (e: Exception) {
+                    Log.e("SuperiorMediaService", "Failed to release audio focus", e)
+                }
+                audioFocusRequest = null
+            }
+        } else {
+            audioFocusChangeListener?.let {
+                try {
+                    audioManager.abandonAudioFocus(it)
+                } catch (e: Exception) {
+                    Log.e("SuperiorMediaService", "Failed to release audio focus", e)
+                }
+            }
+        }
+    }
+
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
                 val imageUriString = intent.getStringExtra(EXTRA_IMAGE_URI)
-                val newImageUri = imageUriString?.toUri()
+                imageUri = imageUriString?.toUri()
 
-                // 헤드업 표시 여부 확인
-                showHeadsUp = intent.getBooleanExtra("show_heads_up", false)
-
-                if (imageUri != newImageUri) {
-                    imageUri = newImageUri
+                // Only load bitmap if not already cached
+                if (cachedBitmap == null) {
                     loadImageBitmap()
                 } else {
-                    // 이미지는 동일해도 헤드업 상태가 변경되었을 수 있으므로 알림 갱신
-                    showPriorityNotification()
+                    showMediaNotification()
                 }
 
-                if (updateRunnable == null) {
-                    startNotificationUpdateTimer()
-                }
+                // Start periodic updates (less frequent)
+                startPeriodicUpdates()
+
+                isPlaying = true
+                dummyAudioState = true
+                updatePlaybackState()
+            }
+            ACTION_PLAY -> {
+                isPlaying = true
+                dummyAudioState = true
+                updatePlaybackState()
+                updateMediaNotification()
+            }
+            ACTION_PAUSE -> {
+                isPlaying = false
+                dummyAudioState = false
+                updatePlaybackState()
+                updateMediaNotification()
             }
             ACTION_STOP -> {
                 stopService()
@@ -122,34 +265,62 @@ class PriorityNotificationService : Service() {
         return START_STICKY
     }
 
-    private fun createPriorityChannel() {
+    // Check music state without changing audio
+    private fun checkForegroundMusicState() {
+        // Just check if music is active, don't modify
+        isForegroundAppPlaying = audioManager.isMusicActive
+        // Update state if needed
+        updatePlaybackState()
+    }
+
+    private fun startPeriodicUpdates() {
+        // Cancel existing updates
+        updateRunnable?.let { mainHandler.removeCallbacks(it) }
+
+        // Create new update runnable with less frequency
+        updateRunnable = object : Runnable {
+            @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+            override fun run() {
+                try {
+                    // Update notification
+                    updateMediaNotification()
+
+                    // Check music state (without playing any audio)
+                    checkForegroundMusicState()
+
+                    // Schedule next update
+                    mainHandler.postDelayed(this, UPDATE_INTERVAL)
+                } catch (e: Exception) {
+                    Log.e("SuperiorMediaService", "Periodic update failed", e)
+                }
+            }
+        }
+
+        // Start periodic updates
+        updateRunnable?.let { mainHandler.post(it) }
+    }
+
+    private fun createMediaChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
-            // 기존 채널이 있다면 삭제
-            notificationManager.deleteNotificationChannel(PRIORITY_CHANNEL_ID)
+            // Don't recreate if channel exists
+            val existingChannel = notificationManager.getNotificationChannel(MEDIA_CHANNEL_ID)
+            if (existingChannel != null) {
+                return
+            }
 
-            // 채널 이름의 특수문자를 변경하여 더 상단에 표시되도록 함
-            val name = "!#최상위 알림"
-            val descriptionText = "최상위 우선순위로 표시되는 알림 채널"
+            val name = "! StatBuddy Noti"
+            val descriptionText = "StatBuddy 아이콘 알림"
 
-            var importance = NotificationManager.IMPORTANCE_HIGH
-            val channel = NotificationChannel(PRIORITY_CHANNEL_ID, name, importance).apply {
+            val channel = NotificationChannel(MEDIA_CHANNEL_ID, name, NotificationManager.IMPORTANCE_HIGH).apply {
                 description = descriptionText
-                // 알림음과 진동은 비활성화하되 높은 우선순위는 유지
                 setBypassDnd(true)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-
-                // 알림음과 진동은 명시적으로 끄기
+                setShowBadge(true)
                 setSound(null, null)
                 enableVibration(false)
                 vibrationPattern = longArrayOf(0L)
-
-                // 알림 배지(도트) 표시 활성화
-                setShowBadge(true)
-
-                // 중요도는 HIGH로 설정했지만 알림음은 없음
-                importance = NotificationManager.IMPORTANCE_HIGH
             }
 
             notificationManager.createNotificationChannel(channel)
@@ -158,37 +329,70 @@ class PriorityNotificationService : Service() {
 
     private fun loadImageBitmap() {
         if (imageUri == null) {
-            cachedBitmap = null
+            showMediaNotification()
             return
         }
 
-        coroutineScope.launch {
+        // Load image only if needed
+        serviceScope.launch {
             try {
-                val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    val source = android.graphics.ImageDecoder.createSource(contentResolver, imageUri!!)
-                    android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                        decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
-                        decoder.isMutableRequired = true
+                // Only load if not cached
+                if (cachedBitmap == null) {
+                    val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        val source = android.graphics.ImageDecoder.createSource(contentResolver, imageUri!!)
+                        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                            decoder.isMutableRequired = true
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        android.provider.MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
                     }
-                } else {
-                    @Suppress("DEPRECATION")
-                    android.provider.MediaStore.Images.Media.getBitmap(contentResolver, imageUri)
-                }
 
-                cachedBitmap = bitmap
+                    // Resize bitmap to save memory (using smaller size)
+                    cachedBitmap = if (bitmap.width > 64 || bitmap.height > 64) {
+                        val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
+                        val targetWidth = if (ratio > 1) 64 else (64 * ratio).toInt()
+                        val targetHeight = if (ratio <= 1) 64 else (64 / ratio).toInt()
+                        val scaled = bitmap.scale(targetWidth, targetHeight)
+                        bitmap.recycle() // Recycle original to save memory
+                        scaled
+                    } else {
+                        bitmap
+                    }
+                }
 
                 withContext(Dispatchers.Main) {
-                    showPriorityNotification()
+                    showMediaNotification()
                 }
             } catch (e: Exception) {
-                Log.e("PriorityNotificationService", "이미지 로딩 오류", e)
-                cachedBitmap = null
+                Log.e("SuperiorMediaService", "Image loading error", e)
+                withContext(Dispatchers.Main) {
+                    showMediaNotification()
+                }
             }
         }
     }
 
-    private fun showPriorityNotification() {
-        val pendingIntent = PendingIntent.getActivity(
+    private fun showMediaNotification() {
+        val notification = createMediaNotification()
+        startForeground(MEDIA_NOTIFICATION_ID, notification)
+    }
+
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
+    private fun updateMediaNotification() {
+        try {
+            val notificationManager = NotificationManagerCompat.from(this)
+            val notification = createMediaNotification()
+            notificationManager.notify(MEDIA_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            Log.e("SuperiorMediaService", "Failed to update notification", e)
+        }
+    }
+
+    private fun createMediaNotification(): Notification {
+        // Create PendingIntent for main activity
+        val contentIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -197,241 +401,105 @@ class PriorityNotificationService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // 현재 시간에서 미래로 설정하여 알림 정렬에서 상단에 오도록 함
-        val futureTime = System.currentTimeMillis() + 1000
+        // Play/Pause action
+        val playPauseIcon = if (isPlaying)
+            android.R.drawable.ic_media_pause
+        else
+            android.R.drawable.ic_media_play
 
-        val builder = NotificationCompat.Builder(this, PRIORITY_CHANNEL_ID)
-            .setContentTitle("이미지 표시 중")
-            .setContentText("이 알림이 항상 최상단에 표시됩니다")
-            // 기본 아이콘은 일단 설정 (동적 아이콘 생성 실패 시 사용)
-            .setSmallIcon(R.drawable.ic_bis)
-            // 최대 우선순위 설정
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            // 전화 통화 카테고리는 일반적으로 최고 우선순위를 가짐
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            // 알림 순서에 영향을 미치는 시간 설정
-            .setWhen(futureTime)
-            // 소리와 진동은 명시적으로 끄기
-            .setSilent(true)
-            .setVibrate(null)
-            .setSound(null)
-            .setLights(0, 0, 0)
-            // 체계적 우선순위 설정
-            .setGroup("high_priority_group")
-            .setGroupSummary(true)
-            // 알림 배지(도트) 설정
-            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setNumber(1)
+        val playPauseAction = if (isPlaying) ACTION_PAUSE else ACTION_PLAY
 
-        // 헤드업 알림 표시 여부 (showHeadsUp 플래그로 제어)
-        if (showHeadsUp) {
-            builder.setFullScreenIntent(pendingIntent, true)
-        }
-
-        // 동적 아이콘 생성 시도
-        val dynamicIconId = imageUri?.let {
-            NotificationUtils.createSmallIconFromImage(this, it)
-        }
-
-        // 동적 아이콘이 생성되었으면 사용
-        if (dynamicIconId != null) {
-            try {
-                // 동적 아이콘 설정 시도
-                val iconFile = NotificationUtils.DynamicResourceManager.getIconFile(dynamicIconId)
-                if (iconFile != null && iconFile.exists()) {
-                    val iconUri = androidx.core.content.FileProvider.getUriForFile(
-                        this,
-                        "com.mangodb.statbuddy.fileprovider",
-                        iconFile
-                    )
-
-                    // Android 8.0 이상에서는 Icon 객체 사용
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val icon = android.graphics.drawable.Icon.createWithContentUri(iconUri)
-                        builder.setSmallIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(
-                            android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
-                        ))
-                    } else {
-                        // 하위 버전에서는 기본 아이콘 사용
-                        builder.setSmallIcon(R.drawable.ic_bis)
-                    }
-
-                    currentIconResourceId = dynamicIconId
-                } else {
-                    builder.setSmallIcon(R.drawable.ic_bis)
-                }
-            } catch (e: Exception) {
-                Log.e("PriorityNotificationService", "동적 아이콘 설정 실패", e)
-                builder.setSmallIcon(R.drawable.ic_bis)
-            }
-        }
-
-        // 캐시된 이미지가 있으면 우측에 작은 아이콘으로만 표시
-        cachedBitmap?.let { bitmap ->
-            // 원본 비트맵 크기를 줄이기
-            val smallBitmap = bitmap.scale(bitmap.width / 4, bitmap.height / 4)
-
-            // 라지 아이콘만 설정하고 BigPictureStyle은 사용하지 않음
-            builder.setLargeIcon(smallBitmap)
-            // 확장 스타일을 사용하지 않거나,
-            // 또는 더 간단한 스타일 사용: BigTextStyle을 사용하여 텍스트만 표시
-            builder.setStyle(NotificationCompat.BigTextStyle()
-                .bigText("이 알림이 항상 최상단에 표시됩니다."))
-        }
-
-        // 서비스를 포그라운드로 시작
-        startForeground(PRIORITY_NOTIFICATION_ID, builder.build())
-    }
-
-    private fun startNotificationUpdateTimer() {
-        updateRunnable = object : Runnable {
-            @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
-            override fun run() {
-                val notificationManager = NotificationManagerCompat.from(this@PriorityNotificationService)
-                try {
-                    // 알림 갱신 (매번 미래 타임스탬프로 새로고침)
-                    val notification = createNotificationWithoutHeadsUp()
-                    notificationManager.notify(PRIORITY_NOTIFICATION_ID, notification)
-                } catch (e: Exception) {
-                    Log.e("PriorityService", "알림 업데이트 실패", e)
-                }
-
-                // 짧은 주기로 다시 예약
-                handler.postDelayed(this, NOTIFICATION_UPDATE_INTERVAL)
-            }
-        }
-
-        handler.postDelayed(updateRunnable!!, NOTIFICATION_UPDATE_INTERVAL)
-    }
-
-    private fun createNotificationWithoutHeadsUp(): Notification {
-        val pendingIntent = PendingIntent.getActivity(
+        val playPauseIntent = PendingIntent.getService(
             this, 0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, NotificationService::class.java).apply { action = playPauseAction },
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             else
                 PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // 매 갱신마다 미래 시간으로 설정하여 최상단 유지
-        val futureTime = System.currentTimeMillis() + 1000
+        // Keep using future time for priority
+        val futureTime = System.currentTimeMillis() + 100000000L
 
-        val builder = NotificationCompat.Builder(this, PRIORITY_CHANNEL_ID)
-            .setContentTitle("이미지 표시 중")
-            .setContentText("이 알림이 항상 최상단에 표시됩니다")
-            // 기본 스몰 아이콘 설정
+        // Build notification
+        val builder = NotificationCompat.Builder(this, MEDIA_CHANNEL_ID)
+            .setContentTitle("⚡ " + (if (isPlaying) "재생 중" else "일시정지"))
+            .setContentText("StatBuddy 실행 중" + (if (isForegroundAppPlaying) " (기기 오디오 재생 중)" else ""))
+            .setSubText("! StatBuddy 알림")
             .setSmallIcon(R.drawable.ic_bis)
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(contentIntent)
             .setOngoing(true)
             .setAutoCancel(false)
             .setWhen(futureTime)
             .setSilent(true)
             .setVibrate(null)
             .setSound(null)
-            .setLights(0, 0, 0)
-            // 그룹 설정 유지
-            .setGroup("high_priority_group")
-            .setGroupSummary(true)
-            // 알림 배지(도트) 설정
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .addAction(playPauseIcon, "재생/일시정지", playPauseIntent)
+            .setStyle(MediaStyle()
+                .setMediaSession(mediaSession.sessionToken)
+                .setShowActionsInCompactView(0))
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .setNumber(1)
 
-        // 마지막 동적 아이콘 ID가 있는 경우 재사용
-        currentIconResourceId?.let { dynamicIconId ->
-            try {
-                val iconFile = NotificationUtils.DynamicResourceManager.getIconFile(dynamicIconId)
-                if (iconFile != null && iconFile.exists()) {
-                    val iconUri = androidx.core.content.FileProvider.getUriForFile(
-                        this,
-                        "com.mangodb.statbuddy.fileprovider",
-                        iconFile
-                    )
-
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val icon = android.graphics.drawable.Icon.createWithContentUri(iconUri)
-                        builder.setSmallIcon(androidx.core.graphics.drawable.IconCompat.createWithBitmap(
-                            android.graphics.BitmapFactory.decodeFile(iconFile.absolutePath)
-                        ))
-                    } else {
-                        builder.setSmallIcon(R.drawable.ic_bis)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("PriorityService", "동적 아이콘 재사용 실패", e)
-            }
-        }
-
-        // 캐시된 이미지 추가 - 작은 크기로 우측에만 표시
+        // Add large icon if available
         cachedBitmap?.let { bitmap ->
-            // 원본 비트맵 크기를 줄이기
-            val smallBitmap = bitmap.scale(bitmap.width / 4, bitmap.height / 4)
-
-            // 라지 아이콘만 설정하고 BigPictureStyle은 사용하지 않음
-            builder.setLargeIcon(smallBitmap)
-            // 확장 스타일 사용하지 않거나, 텍스트 스타일만 사용
-            builder.setStyle(NotificationCompat.BigTextStyle()
-                .bigText("이 알림이 항상 최상단에 표시됩니다."))
+            builder.setLargeIcon(bitmap)
         }
 
         return builder.build()
     }
 
     private fun stopService() {
-        updateRunnable?.let { handler.removeCallbacks(it) }
+        // Clean up all resources
+        updateRunnable?.let { mainHandler.removeCallbacks(it) }
         updateRunnable = null
 
+        // Cancel all coroutines
+        serviceJob.cancel()
+
+        // Release audio focus
+        releaseAudioFocusRequest()
+        audioFocusChangeListener = null
+
+        // Release MediaSession
+        try {
+            if (::mediaSession.isInitialized) {
+                mediaSession.release()
+            }
+        } catch (e: Exception) {
+            Log.e("SuperiorMediaService", "Failed to release MediaSession", e)
+        }
+
+        // Clean up bitmap resources
+        try {
+            cachedBitmap?.recycle()
+            cachedBitmap = null
+        } catch (e: Exception) {
+            Log.e("SuperiorMediaService", "Failed to release bitmap", e)
+        }
+
+        // Stop foreground service
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
             stopForeground(true)
         }
 
-        val notificationManager = NotificationManagerCompat.from(this)
-        notificationManager.cancel(PRIORITY_NOTIFICATION_ID)
-
-        // 동적 아이콘 리소스 정리
-        currentIconResourceId?.let { iconId ->
-            try {
-                NotificationUtils.DynamicResourceManager.getIconFile(iconId)
-            } catch (e: Exception) {
-                Log.e("PriorityService", "동적 아이콘 리소스 정리 실패", e)
-            }
-        }
-        currentIconResourceId = null
-
-        cachedBitmap?.recycle()
-        cachedBitmap = null
-        imageUri = null
-
         stopSelf()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Optional - only restart if necessary
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
-        updateRunnable?.let { handler.removeCallbacks(it) }
-        updateRunnable = null
-
-        // 동적 아이콘 리소스 정리
-        currentIconResourceId?.let { iconId ->
-            try {
-                NotificationUtils.DynamicResourceManager.getIconFile(iconId)
-            } catch (e: Exception) {
-                Log.e("PriorityService", "동적 아이콘 리소스 정리 실패", e)
-            }
-        }
-        currentIconResourceId = null
-
-        cachedBitmap?.recycle()
-        cachedBitmap = null
+        stopService()
         super.onDestroy()
     }
 
-    override fun onBind(intent: Intent?): android.os.IBinder? = null
+    override fun onBind(intent: Intent?) = null
 }

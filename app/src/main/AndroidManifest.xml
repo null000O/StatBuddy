@@ -25,12 +25,6 @@
             android:permission="android.permission.FOREGROUND_SERVICE"
             android:exported="false">
         </service>
-        <service
-            android:name=".PriorityNotificationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback">
-        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="com.mangodb.statbuddy.fileprovider"
